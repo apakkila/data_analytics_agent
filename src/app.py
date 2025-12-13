@@ -4,16 +4,13 @@ import plotly.express as px
 import re # Import for robust SQL extraction
 from agent import setup_sql_agent, run_sql_query # Import core agent and DB execution functions
 
-# --- 1. VISUALIZATION ORCHESTRATOR ---
+# --- 1. VISUALIZATION ORCHESTRATOR (No Changes Needed Here) ---
 
 def get_chart_type(df):
     """
     Determines the best chart type based on the returned DataFrame structure 
     following the rules:
-    - Single Numeric      -> Histogram (if more than one unique value)
-    - Timestamp + Numeric -> Line Chart
-    - Text + Numeric      -> Bar Chart
-    - Others              -> Data Table
+    ... (All functions: get_chart_type, create_visualization are kept as is)
     """
     
     if df.empty or len(df) == 0:
@@ -23,38 +20,36 @@ def get_chart_type(df):
     
     # Rule 1: Single Column Numeric -> Histogram
     if len(cols) == 1 and pd.api.types.is_numeric_dtype(df[cols[0]]):
-        # Only check if there's more than one unique value; otherwise, it's just a single AVG/SUM result.
         if df[cols[0]].nunique() > 1:
             return 'histogram'
 
     # Rule 2: Two Columns
     if len(cols) == 2:
-        # Get column names for explicit checks
         col1, col2 = cols[0], cols[1]
-
         col2_is_numeric = pd.api.types.is_numeric_dtype(df[col2])
         
-        # Rule 2a: Timestamp (or Date) + Numeric -> Line Chart (Uses robust Pandas check)
+        # Rule 2a: Timestamp (or Date) + Numeric -> Line Chart
         if pd.api.types.is_datetime64_any_dtype(df[col1]) and col2_is_numeric:
             return 'line'
         
-        # Rule 2b: Text (Category) + Numeric -> Bar Chart (Uses robust Pandas check)
-        # Note: Must also check if the number of unique categories is manageable for a bar chart
+        # Rule 2b: Text (Category) + Numeric -> Bar Chart
         if pd.api.types.is_string_dtype(df[col1]) and col2_is_numeric and df[col1].nunique() < 50:
             return 'bar'
         
-        # Fallback to bar if string type is not strictly inferred but is object/text
+        if pd.api.types.is_numeric_dtype(df[col1]) and col2_is_numeric:
+            return 'bar'
+        
+        # Fallback to bar
         if pd.api.types.infer_dtype(df[col1], skipna=True) in ['object', 'string'] and col2_is_numeric and df[col1].nunique() < 50:
              return 'bar'
             
-    # Rule 3: More than two columns OR single aggregate number -> Data Table
+    # Rule 3: Data Table
     return 'table'
 
 def create_visualization(df, user_query):
-    """Creates a Plotly visualization based on the data and query context."""
+    # ... (Visualization logic is correct)
     chart_type = get_chart_type(df)
     
-    # Define user-friendly titles
     col_map = {
         'count': 'Total Number of Bookings',
         'avg': 'Average Value',
@@ -66,10 +61,9 @@ def create_visualization(df, user_query):
         'booking_value': 'Booking Value',
         'ride_distance': 'Ride Distance (km)',
         'ride_day': 'Ride Day',
-        'ride_date': 'Ride Date' # Add ride_date to map
+        'ride_date': 'Ride Date'
     }
     
-    # Get column names for axes
     cols = df.columns
     
     if chart_type == 'bar' and len(cols) == 2:
@@ -139,6 +133,7 @@ def extract_sql_or_raise(raw_output: str) -> str:
 def get_agent():
     return setup_sql_agent()
 
+# The agent is now a Generator Chain
 agent = get_agent()
 
 # Initialize chat history
@@ -164,54 +159,18 @@ if prompt := st.chat_input("Ask a question about the ride data..."):
         with st.spinner("Analyzing data and generating query..."):
             
             try:
-                # --- FIRST ATTEMPT ---
-                agent_output = agent.invoke({"input": prompt})
+                # 1. Invoke the Generator Chain
+                # The input to the chain MUST be a dictionary matching the prompt template keys.
+                # The output is expected to be a clean SQL string.
+                sql_raw_output = agent.invoke({"question": prompt})
                 
-                # --- Robust Output Extraction (First Attempt) ---
-                output = agent_output.get('output')
-                raw_output = ""
-
-                if isinstance(output, str):
-                    raw_output = output
-                elif isinstance(output, dict) and 'text' in output:
-                    raw_output = output['text']
-                elif isinstance(output, list) and output:
-                    if isinstance(output[0], dict) and 'text' in output[0]:
-                        raw_output = output[0]['text']
-                
-                try:
-                    # Attempt to extract SQL from the potentially chatty raw_output
-                    sql_query = extract_sql_or_raise(raw_output)
-                except ValueError:
-                    # 🔁 RETRY: If extraction failed due to chatter, try again with a strict, direct prompt
-                    
-                    st.warning("Agent's initial output was chatty. Retrying with stricter instructions...")
-
-                    retry_prompt = (
-                        "SQL_START: ONLY output a valid PostgreSQL SELECT query.\n"
-                        "Do NOT explain anything.\n"
-                        f"Question: {prompt}"
-                    )
-                    agent_output = agent.invoke({"input": retry_prompt})
-
-                    # --- Robust Output Extraction (Second Attempt - MUST BE DUPLICATED) ---
-                    output = agent_output.get('output')
-                    raw_output = "" # Reset raw_output for the second attempt
-
-                    if isinstance(output, str):
-                        raw_output = output
-                    elif isinstance(output, dict) and 'text' in output:
-                        raw_output = output['text']
-                    elif isinstance(output, list) and output:
-                        if isinstance(output[0], dict) and 'text' in output[0]:
-                            raw_output = output[0]['text']
-                    
-                    # FINAL ATTEMPT to extract the clean SQL from the second, strict output
-                    sql_query = extract_sql_or_raise(raw_output)
+                # 2. Extract and Validate SQL (Simplest extraction, no nested dict/list checks)
+                # We still use the robust extractor just in case the LLM adds markdown.
+                sql_query = extract_sql_or_raise(sql_raw_output)
                     
                 st.info(f"Generated SQL Query: `{sql_query}`")
 
-                # 2. Execute the Extracted SQL Query and convert to DataFrame
+                # 3. Execute the Extracted SQL Query and convert to DataFrame
                 df_result = run_sql_query(sql_query)
                 
                 if isinstance(df_result, str):
@@ -219,16 +178,14 @@ if prompt := st.chat_input("Ask a question about the ride data..."):
                     st.error(df_result) 
                     final_text_output = f"Error executing SQL: {df_result}"
                 else:
-                    # 3. Create Visualization and Display
+                    # 4. Create Visualization and Display
+                    
                     # CRITICAL: If the query returned a time-based column (like ride_date), convert it manually
-                    # to ensure create_visualization detects the 'line' chart type correctly.
-                    # We check for common date/time column names used by the LLM
                     date_cols = [col for col in df_result.columns if 'date' in col.lower() or 'time' in col.lower()]
                     if date_cols:
                          try:
                              df_result[date_cols[0]] = pd.to_datetime(df_result[date_cols[0]])
                          except Exception:
-                             # Ignore if conversion fails (e.g., if column is just a string 'Completed')
                              pass
                          
                     create_visualization(df_result, prompt)
@@ -237,8 +194,8 @@ if prompt := st.chat_input("Ask a question about the ride data..."):
                     st.success(final_text_output)
 
             except ValueError as ve:
-                # Catches error from extract_sql_or_raise (No SQL found after two attempts)
-                error_message = f"The agent failed to generate a valid SQL query. Output: {raw_output[:100]}... Error: {ve}"
+                # Catches error from extract_sql_or_raise (The chain did not output valid SQL)
+                error_message = f"The Generator Chain failed to produce valid SQL. Output: {sql_raw_output[:100]}... Error: {ve}"
                 st.error(error_message)
                 final_text_output = error_message
 
@@ -252,12 +209,10 @@ if prompt := st.chat_input("Ask a question about the ride data..."):
     st.session_state.messages.append({"role": "assistant", "content": final_text_output})
 
 
-# --- TEMPORARY VISUALIZATION TEST ---
-# This block runs every time the app loads to verify the database connection and visualization stack.
+# --- TEMPORARY VISUALIZATION TEST (No Changes Needed Here) ---
 with st.expander("📊 Test Visualization Output"):
     st.subheader("Time Series Test: Ride Volume by Day")
     
-    # This query tests the connection and the Line Chart logic
     df_test = run_sql_query("""
         SELECT DATE_TRUNC('day', ride_timestamp) AS ride_day,
                COUNT(booking_id) AS ride_volume
@@ -268,15 +223,11 @@ with st.expander("📊 Test Visualization Output"):
     """)
 
     if isinstance(df_test, pd.DataFrame) and not df_test.empty:
-        
-        # CRITICAL FIX: Explicitly convert the date column to datetime type
         df_test['ride_day'] = pd.to_datetime(df_test['ride_day']) 
-        
         create_visualization(df_test, "Ride Volume over 10 Days")
         st.success("Test Plot Generated Successfully: Connection and Visualization Stack OK.")
     elif isinstance(df_test, str):
         st.error(f"Test Failed: Database Connection/Execution Error: {df_test}")
     else:
          st.warning("Test Plot Generated, but DataFrame was empty.")
-
 # --- END OF TEMPORARY TEST ---
