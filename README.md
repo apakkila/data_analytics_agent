@@ -10,7 +10,7 @@ cd scripts
 python3 db_loading.py
 ``
 
-4. After loading the database, run the following SQL command in pgAdmin:
+3. After loading the database, run the following SQL command in pgAdmin:
 
 ``
 CREATE OR REPLACE VIEW cleaned_uber_rides AS
@@ -39,13 +39,8 @@ WHERE
     (avg_waiting_time > 0 OR avg_ride_time > 0 OR booking_value > 0 OR ride_distance > 0 OR booking_status = 'Completed');
 ``
 
-4. Set up the Gemini API key with the following terminal command:
 
-``
-export GEMINI_API_KEY='AIzaSyD2cje_ybFGUjxh-e6NcBrp5-mQA6SdGEE'
-``
-
-6. Change the directory to src:
+4. Change the directory to src:
 
 ``
 cd ..
@@ -55,13 +50,13 @@ cd ..
 cd src
 ``
 
-9. Run the data analytics application with the command:
+5. Run the data analytics application with the command:
 
 ``
 streamlit run app.py
 ``
 
-11. Ask the agent, e.g., some of the following questions:
+6. Ask the agent, e.g., some of the following questions:
 - Give a distribution of booking values
 - Sort the data by date and give the distribution of ride volumes by day
 - Give the distribution of customer ratings
